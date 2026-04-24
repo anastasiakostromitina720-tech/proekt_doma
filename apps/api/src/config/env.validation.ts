@@ -28,6 +28,8 @@ export const envSchema = z
     STORAGE_SECRET_KEY: z.string().optional(),
     STORAGE_BUCKET: z.string().optional(),
     STORAGE_FORCE_PATH_STYLE: booleanFromString.optional(),
+    /** Browser-reachable S3 endpoint for presigned URLs (optional; falls back to STORAGE_ENDPOINT). */
+    STORAGE_PUBLIC_URL: z.string().url().optional(),
 
     AUTH_JWT_ACCESS_SECRET: z.string().min(32, 'AUTH_JWT_ACCESS_SECRET must be at least 32 chars'),
     AUTH_JWT_REFRESH_SECRET: z

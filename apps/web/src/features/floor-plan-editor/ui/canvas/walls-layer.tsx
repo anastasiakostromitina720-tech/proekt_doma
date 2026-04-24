@@ -1,9 +1,11 @@
 'use client';
 
+import type Konva from 'konva';
 import type { Wall } from '@app/contracts';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import { Layer, Line } from 'react-konva';
 
+import type { Point } from '../../model/geometry';
 import type { Selection, Tool } from '../../model/editor.store';
 
 interface Props {
@@ -11,29 +13,47 @@ interface Props {
   tool: Tool;
   selection: Selection;
   onPick(id: string): void;
+  /** Door/window tools: wall click with world-space pointer. */
+  onPlaceOpening?: (wallId: string, world: Point) => void;
+}
+
+function pointerToWorld(stage: Konva.Stage | null | undefined): Point | null {
+  if (!stage) return null;
+  const pointer = stage.getPointerPosition();
+  if (!pointer) return null;
+  return stage.getAbsoluteTransform().copy().invert().point(pointer);
 }
 
 /**
- * Renders each wall as a Konva `Line` with `strokeWidth = wall.thickness`
- * in world-units (metres). Because the Stage applies the scale
- * transform, a 0.2m-thick wall naturally scales with zoom — which is
- * exactly how a real wall should feel.
- *
- * Only `select` and `delete` tools treat walls as interactive; during
- * `wall` or `room` drawing we turn listening off so a click on an
- * existing wall doesn't hijack the drawing gesture.
+ * Walls render below openings. For `door` / `window` tools the layer
+ * stays interactive so placement clicks hit the wall segment first
+ * (openings layer sets `listening={false}` in those modes).
  */
-export function WallsLayer({ walls, tool, selection, onPick }: Props) {
-  const interactive = tool === 'select' || tool === 'delete';
+export function WallsLayer({ walls, tool, selection, onPick, onPlaceOpening }: Props) {
+  const selectOrDelete = tool === 'select' || tool === 'delete';
+  const placeOpening = tool === 'door' || tool === 'window';
+  const interactive = selectOrDelete || placeOpening;
 
   const handlers = (id: string) => ({
     onClick: (e: KonvaEventObject<MouseEvent>) => {
-      if (!interactive) return;
+      if (placeOpening && onPlaceOpening) {
+        e.cancelBubble = true;
+        const world = pointerToWorld(e.target.getStage());
+        if (world) onPlaceOpening(id, world);
+        return;
+      }
+      if (!selectOrDelete) return;
       e.cancelBubble = true;
       onPick(id);
     },
     onTap: (e: KonvaEventObject<TouchEvent>) => {
-      if (!interactive) return;
+      if (placeOpening && onPlaceOpening) {
+        e.cancelBubble = true;
+        const world = pointerToWorld(e.target.getStage());
+        if (world) onPlaceOpening(id, world);
+        return;
+      }
+      if (!selectOrDelete) return;
       e.cancelBubble = true;
       onPick(id);
     },

@@ -27,7 +27,7 @@ const isEditableTarget = (t: EventTarget | null): boolean => {
  *
  *   Escape      - cancel an in-progress draft or clear selection (UI, always on)
  *   Delete/Back - remove current selection (mutation, gated by isMutatingBlocked)
- *   V / W / R   - quick tool switch (UI, always on)
+ *   V / W / R / D / O - quick tool switch (UI, always on)
  *
  * Any keypress originating from inside an input / textarea / select /
  * contenteditable element is ignored outright — so typing "w" in the
@@ -73,6 +73,12 @@ export function useEditorKeyboard({ isMutatingBlocked }: Options): void {
           break;
         case 'r':
           store.setTool('room');
+          break;
+        case 'd':
+          store.setTool('door');
+          break;
+        case 'o':
+          store.setTool('window');
           break;
       }
     };

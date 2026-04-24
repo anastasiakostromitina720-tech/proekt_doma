@@ -14,6 +14,8 @@ const TOOLS: ToolDescriptor[] = [
   { id: 'select', label: 'Выбрать', hint: 'V — выделять и редактировать' },
   { id: 'wall', label: 'Стена', hint: 'W — два клика: начало и конец' },
   { id: 'room', label: 'Комната', hint: 'R — два клика: противоположные углы' },
+  { id: 'door', label: 'Дверь', hint: 'D — клик по стене: позиция вдоль стены' },
+  { id: 'window', label: 'Окно', hint: 'O — клик по стене' },
   { id: 'delete', label: 'Удалить', hint: 'клик по элементу' },
 ];
 

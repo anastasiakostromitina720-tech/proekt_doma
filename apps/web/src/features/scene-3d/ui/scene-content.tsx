@@ -5,8 +5,10 @@ import { Grid, OrbitControls } from '@react-three/drei';
 import { useMemo } from 'react';
 
 import {
+  collectOpeningMarkers,
   roomToFloorShape,
   wallToMeshProps,
+  type OpeningMarkerProps,
   type RoomFloorShape,
   type WallMeshProps,
 } from '../model/plan-to-scene';
@@ -33,6 +35,8 @@ export function SceneContent({ data }: Props) {
   }, [data.walls]);
 
   const roomShapes = useMemo(() => data.rooms.map(roomToFloorShape), [data.rooms]);
+
+  const openingMarkers = useMemo((): OpeningMarkerProps[] => collectOpeningMarkers(data), [data]);
 
   return (
     <>
@@ -65,6 +69,21 @@ export function SceneContent({ data }: Props) {
 
       {walls.map((w) => (
         <WallMesh key={w.wallId} wall={w} />
+      ))}
+      {openingMarkers.map((m) => (
+        <mesh
+          key={`${m.kind}-${m.openingId}`}
+          position={m.position}
+          rotation={m.rotation}
+          castShadow
+        >
+          <boxGeometry args={m.boxArgs} />
+          <meshStandardMaterial
+            color={m.color}
+            emissive={m.color}
+            emissiveIntensity={0.12}
+          />
+        </mesh>
       ))}
       {roomShapes.map((s: RoomFloorShape) => (
         <RoomFloorMesh key={s.roomId} shape={s} />

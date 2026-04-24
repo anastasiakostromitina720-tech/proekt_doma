@@ -11,6 +11,7 @@ import { constrainOrtho } from '../../model/ortho';
 import { snapPoint } from '../../model/snap';
 
 import { GridLayer } from './grid-layer';
+import { OpeningsLayer } from './openings-layer';
 import { WallsLayer } from './walls-layer';
 import { RoomsLayer } from './rooms-layer';
 import { PreviewLayer } from './preview-layer';
@@ -76,6 +77,8 @@ export function EditorCanvas({ isMutatingBlocked }: Props) {
   const pan = useEditorStore((s) => s.pan);
   const walls = useEditorStore((s) => s.data.walls);
   const rooms = useEditorStore((s) => s.data.rooms);
+  const doors = useEditorStore((s) => s.data.doors);
+  const windows = useEditorStore((s) => s.data.windows);
   const gridSize = useEditorStore((s) => s.data.meta.gridSize);
 
   // Centre the view on first mount so the origin is roughly in the middle.
@@ -193,9 +196,10 @@ export function EditorCanvas({ isMutatingBlocked }: Props) {
         break;
       }
 
+      case 'door':
+      case 'window':
       case 'delete':
-        // Delete requires clicking a shape. Empty-stage click is a
-        // no-op (intentionally — avoids "missed the wall" surprises).
+        // Placement / delete use wall or opening hits, not empty stage.
         break;
     }
   };
@@ -249,6 +253,8 @@ export function EditorCanvas({ isMutatingBlocked }: Props) {
     switch (tool) {
       case 'wall':
       case 'room':
+      case 'door':
+      case 'window':
         return isMutatingBlocked ? 'progress' : 'crosshair';
       case 'delete':
         return isMutatingBlocked ? 'progress' : 'not-allowed';
@@ -275,6 +281,34 @@ export function EditorCanvas({ isMutatingBlocked }: Props) {
       store.deleteRoom(id);
     } else {
       store.setSelection({ type: 'room', id });
+    }
+  };
+
+  const onPlaceOpening = (wallId: string, world: { x: number; y: number }): void => {
+    if (isMutatingBlocked) return;
+    const store = useEditorStore.getState();
+    const snapped = snapPoint(world, gridSize);
+    if (store.tool === 'door') store.addDoorOnWall(wallId, snapped);
+    else if (store.tool === 'window') store.addWindowOnWall(wallId, snapped);
+  };
+
+  const onPickDoor = (id: string): void => {
+    const store = useEditorStore.getState();
+    if (store.tool === 'delete') {
+      if (isMutatingBlocked) return;
+      store.deleteDoor(id);
+    } else {
+      store.setSelection({ type: 'door', id });
+    }
+  };
+
+  const onPickWindow = (id: string): void => {
+    const store = useEditorStore.getState();
+    if (store.tool === 'delete') {
+      if (isMutatingBlocked) return;
+      store.deleteWindow(id);
+    } else {
+      store.setSelection({ type: 'window', id });
     }
   };
 
@@ -316,7 +350,22 @@ export function EditorCanvas({ isMutatingBlocked }: Props) {
             scale={scale}
             onPick={onPickRoom}
           />
-          <WallsLayer walls={walls} tool={tool} selection={selection} onPick={onPickWall} />
+          <WallsLayer
+            walls={walls}
+            tool={tool}
+            selection={selection}
+            onPick={onPickWall}
+            onPlaceOpening={onPlaceOpening}
+          />
+          <OpeningsLayer
+            walls={walls}
+            doors={doors}
+            windows={windows}
+            tool={tool}
+            selection={selection}
+            onPickDoor={onPickDoor}
+            onPickWindow={onPickWindow}
+          />
           <PreviewLayer draft={draft} />
         </Stage>
       ) : null}

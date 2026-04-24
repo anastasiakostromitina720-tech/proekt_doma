@@ -3,89 +3,57 @@
 import {
   createEmptyFloorPlanData,
   FLOOR_PLAN_SCHEMA_VERSION,
+  type Door,
   type FloorPlan,
   type FloorPlanData,
   type Room,
   type Wall,
+  type Window as PlanWindow,
 } from '@app/contracts';
 import { create } from 'zustand';
 
 import { rectanglePolygon, type Point } from './geometry';
+import {
+  clampPositionForOpeningOnWall,
+  DEFAULT_DOOR,
+  DEFAULT_WINDOW,
+  worldPointToWallParameter,
+} from './wall-openings';
 
-export type Tool = 'select' | 'wall' | 'room' | 'delete';
-
-/**
- * Selection stores only the minimum needed to look up the element on
- * every render: its domain collection (`type`) and its id. The actual
- * object is always sourced from `data` — never cached — so it can't go
- * stale if the element is edited elsewhere.
- */
-export type Selection = { type: 'wall' | 'room'; id: string } | null;
+export type Tool = 'select' | 'wall' | 'room' | 'door' | 'window' | 'delete';
 
 /**
- * Ephemeral state for the "in-progress" shape the user is drawing.
- * Unified naming (`start` + `current`) across tool kinds keeps the
- * preview layer small and the discriminator (`type`) identical in both
- * shape and the selection type.
- *
- *   - null: nothing is being drawn.
- *   - wall: after 1st click, `start` is fixed; `current` tracks the cursor
- *           (may be null before the first pointer-move event).
- *   - room: same semantics, for the second corner of the rectangle.
+ * Selection stores only `{ type, id }` for walls, rooms, doors, windows.
  */
+export type Selection =
+  | { type: 'wall'; id: string }
+  | { type: 'room'; id: string }
+  | { type: 'door'; id: string }
+  | { type: 'window'; id: string }
+  | null;
+
 export type Draft =
   | null
   | { type: 'wall'; start: Point; current: Point | null }
   | { type: 'room'; start: Point; current: Point | null };
 
 export interface EditorState {
-  // -------- Domain (single source of truth for the editor) --------
   planId: string | null;
   version: number;
   level: number;
   data: FloorPlanData;
 
-  // -------- Editor state --------
   tool: Tool;
   selection: Selection;
   draft: Draft;
   dirty: boolean;
 
-  // -------- Viewport --------
-  /** Pixels per world-metre after zoom is applied. */
   scale: number;
-  /** Stage translation in screen-pixels. */
   pan: Point;
 
-  // -------- Actions: lifecycle --------
-  /**
-   * Full-reset adoption of a server plan. Resets domain state, clears
-   * `selection`, `draft`, and `dirty`. Intended for two explicit
-   * scenarios:
-   *   1. First time the editor sees a plan (initial load or a switch
-   *      to a different project).
-   *   2. User-initiated reload (the user already confirmed any local
-   *      changes will be lost).
-   * Viewport (`scale`, `pan`) and the active `tool` are preserved —
-   * they are session-scoped UI, not plan data.
-   */
   hydrate(plan: FloorPlan): void;
-
-  /**
-   * Partial reconcile after a successful save. Updates `planId`,
-   * `version`, `level`, `data` and clears `dirty`; preserves
-   * `selection`, `draft`, `tool`, and viewport.
-   *
-   * Safe because save-initiated mutations are blocked on the UI side
-   * while `saveStatus === 'saving'`, so at the moment the server
-   * responds, `store.data === payload.data`. We reassign from the
-   * server's authoritative copy anyway so any schema-level
-   * normalisation (defaults, ordering) is picked up, but the operation
-   * is effectively idempotent with respect to the user's current work.
-   */
   reconcileSaved(plan: FloorPlan): void;
 
-  // -------- Actions: UI state --------
   setTool(tool: Tool): void;
   setSelection(selection: Selection): void;
   setScale(scale: number): void;
@@ -93,24 +61,28 @@ export interface EditorState {
   setDraftCurrent(point: Point | null): void;
   cancelDraft(): void;
 
-  // -------- Actions: drawing --------
-  /** First click of a wall — starts draft. */
   beginWall(start: Point): void;
-  /** Second click of a wall — commits and clears draft. */
   commitWall(end: Point): void;
-  /** First click of a room — starts draft. */
   beginRoom(start: Point): void;
-  /** Second click of a room — commits rectangle. */
   commitRoom(end: Point): void;
 
-  // -------- Actions: mutations --------
+  /** Place a door on `wallId`; `world` is used only to derive `position` 0..1. */
+  addDoorOnWall(wallId: string, world: Point): void;
+  addWindowOnWall(wallId: string, world: Point): void;
+
   deleteWall(id: string): void;
   deleteRoom(id: string): void;
+  deleteDoor(id: string): void;
+  deleteWindow(id: string): void;
   deleteSelected(): void;
   updateWall(id: string, patch: Partial<Pick<Wall, 'thickness' | 'height'>>): void;
   updateRoom(id: string, patch: Partial<Pick<Room, 'name' | 'floorLevel'>>): void;
+  updateDoor(id: string, patch: Partial<Pick<Door, 'wallId' | 'position' | 'width' | 'height'>>): void;
+  updateWindow(
+    id: string,
+    patch: Partial<Pick<PlanWindow, 'wallId' | 'position' | 'width' | 'height' | 'sillHeight'>>,
+  ): void;
 
-  // -------- Selectors (pure functions over state) --------
   getPlanData(): FloorPlanData;
 }
 
@@ -120,17 +92,6 @@ const DEFAULT_SCALE = 80;
 
 const DEFAULT_WALL: Pick<Wall, 'thickness' | 'height'> = { thickness: 0.2, height: 2.7 };
 
-/**
- * Generates an RFC 4122 v4 UUID.
- *
- *   1. Preferred: `crypto.randomUUID()` (all modern browsers).
- *   2. Fallback: construct a v4 UUID from `crypto.getRandomValues`.
- *      Available since IE 11 / very old Safari — in practice always
- *      present in environments we support.
- *   3. If neither exists, throw. A malformed id would silently fail
- *      server-side validation (`uuidSchema`) and break save; failing
- *      loudly here surfaces the real problem at the call site.
- */
 const generateId = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -139,7 +100,6 @@ const generateId = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
     const bytes = new Uint8Array(16);
     crypto.getRandomValues(bytes);
-    // Per RFC 4122 §4.4: set version (0100) and variant (10xx) bits.
     const u6 = bytes[6] ?? 0;
     const u8 = bytes[8] ?? 0;
     bytes[6] = (u6 & 0x0f) | 0x40;
@@ -156,23 +116,6 @@ const generateId = (): string => {
   );
 };
 
-/**
- * Zustand store for the floor plan editor.
- *
- * Design rules:
- *   1. Domain (`data`) is the source of truth. Walls and rooms are
- *      independent domain entities — the store never derives one from
- *      the other, never "closes" a room based on walls, and never
- *      recomputes polygons on wall edits.
- *   2. Mutations go through actions. Each domain-mutating action sets
- *      `dirty = true`; only `hydrate` / `reconcileSaved` can clear it,
- *      and each is called from exactly one place in the orchestrator.
- *   3. New walls and rooms receive ids on the client via
- *      `crypto.randomUUID()`. The server never generates ids for
- *      editor entities.
- *   4. Viewport (`scale`, `pan`) lives here to survive component
- *      re-mounts but is intentionally NOT persisted — per-session only.
- */
 export const useEditorStore = create<EditorState>((set, get) => ({
   planId: null,
   version: 1,
@@ -212,11 +155,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setTool(tool) {
     set((prev) => ({
       tool,
-      // Changing tool always drops any in-progress draft; it's not
-      // meaningful to "have a half-drawn wall" while switching modes.
       draft: null,
-      // Selection only makes sense in `select` mode; for symmetry we
-      // clear it elsewhere so the sidebar doesn't lie about context.
       selection: tool === 'select' ? prev.selection : null,
     }));
   },
@@ -250,8 +189,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   commitWall(end) {
     const draft = get().draft;
     if (!draft || draft.type !== 'wall') return;
-    // Degenerate zero-length walls are silently dropped; the user can
-    // retry without the draft resetting awkwardly.
     if (draft.start.x === end.x && draft.start.y === end.y) {
       set({ draft: null });
       return;
@@ -284,7 +221,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       set({ draft: null });
       return;
     }
-    // Rectangle collapsed onto a line/point — drop silently.
     if (p0.x === p2.x || p0.y === p2.y) {
       set({ draft: null });
       return;
@@ -303,22 +239,66 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }));
   },
 
-  deleteWall(id) {
+  addDoorOnWall(wallId, world) {
+    const wall = get().data.walls.find((w) => w.id === wallId);
+    if (!wall) return;
+    const tRaw = worldPointToWallParameter(wall, world);
+    const position = clampPositionForOpeningOnWall(wall, tRaw, DEFAULT_DOOR.width);
+    const door: Door = {
+      id: generateId(),
+      wallId,
+      position,
+      width: DEFAULT_DOOR.width,
+      height: DEFAULT_DOOR.height,
+    };
     set((prev) => ({
-      data: {
-        ...prev.data,
-        walls: prev.data.walls.filter((w) => w.id !== id),
-        // Cascade: doors/windows reference walls by id — keeping orphan
-        // references in the saved JSON would break domain invariants.
-        // This is a REFERENTIAL cascade, not a geometric one: rooms are
-        // unaffected even if they share edges with the removed wall.
-        doors: prev.data.doors.filter((d) => d.wallId !== id),
-        windows: prev.data.windows.filter((w) => w.wallId !== id),
-      },
-      selection:
-        prev.selection?.type === 'wall' && prev.selection.id === id ? null : prev.selection,
+      data: { ...prev.data, doors: [...prev.data.doors, door] },
       dirty: true,
     }));
+  },
+
+  addWindowOnWall(wallId, world) {
+    const wall = get().data.walls.find((w) => w.id === wallId);
+    if (!wall) return;
+    const tRaw = worldPointToWallParameter(wall, world);
+    const position = clampPositionForOpeningOnWall(wall, tRaw, DEFAULT_WINDOW.width);
+    const win: PlanWindow = {
+      id: generateId(),
+      wallId,
+      position,
+      width: DEFAULT_WINDOW.width,
+      height: DEFAULT_WINDOW.height,
+      sillHeight: DEFAULT_WINDOW.sillHeight,
+    };
+    set((prev) => ({
+      data: { ...prev.data, windows: [...prev.data.windows, win] },
+      dirty: true,
+    }));
+  },
+
+  deleteWall(id) {
+    set((prev) => {
+      const sel = prev.selection;
+      let nextSel = sel;
+      if (sel?.type === 'wall' && sel.id === id) nextSel = null;
+      else if (sel?.type === 'door') {
+        const d = prev.data.doors.find((x) => x.id === sel.id);
+        if (d?.wallId === id) nextSel = null;
+      } else if (sel?.type === 'window') {
+        const w = prev.data.windows.find((x) => x.id === sel.id);
+        if (w?.wallId === id) nextSel = null;
+      }
+      return {
+        data: {
+          ...prev.data,
+          walls: prev.data.walls.filter((w) => w.id !== id),
+          doors: prev.data.doors.filter((d) => d.wallId !== id),
+          windows: prev.data.windows.filter((w) => w.wallId !== id),
+        },
+        selection: nextSel,
+        dirty: true,
+      };
+    });
   },
 
   deleteRoom(id) {
@@ -330,11 +310,31 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }));
   },
 
+  deleteDoor(id) {
+    set((prev) => ({
+      data: { ...prev.data, doors: prev.data.doors.filter((d) => d.id !== id) },
+      selection:
+        prev.selection?.type === 'door' && prev.selection.id === id ? null : prev.selection,
+      dirty: true,
+    }));
+  },
+
+  deleteWindow(id) {
+    set((prev) => ({
+      data: { ...prev.data, windows: prev.data.windows.filter((w) => w.id !== id) },
+      selection:
+        prev.selection?.type === 'window' && prev.selection.id === id ? null : prev.selection,
+      dirty: true,
+    }));
+  },
+
   deleteSelected() {
     const sel = get().selection;
     if (!sel) return;
     if (sel.type === 'wall') get().deleteWall(sel.id);
-    else get().deleteRoom(sel.id);
+    else if (sel.type === 'room') get().deleteRoom(sel.id);
+    else if (sel.type === 'door') get().deleteDoor(sel.id);
+    else get().deleteWindow(sel.id);
   },
 
   updateWall(id, patch) {
@@ -357,11 +357,57 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }));
   },
 
+  updateDoor(id, patch) {
+    set((prev) => {
+      const door = prev.data.doors.find((d) => d.id === id);
+      if (!door) return prev;
+      const nextWallId = patch.wallId ?? door.wallId;
+      const wall = prev.data.walls.find((w) => w.id === nextWallId);
+      if (!wall) return prev;
+      const width = patch.width ?? door.width;
+      const height = patch.height ?? door.height;
+      let position = patch.position ?? door.position;
+      position = clampPositionForOpeningOnWall(wall, position, width);
+      return {
+        data: {
+          ...prev.data,
+          doors: prev.data.doors.map((d) =>
+            d.id === id ? { ...d, wallId: nextWallId, position, width, height } : d,
+          ),
+        },
+        dirty: true,
+      };
+    });
+  },
+
+  updateWindow(id, patch) {
+    set((prev) => {
+      const win = prev.data.windows.find((w) => w.id === id);
+      if (!win) return prev;
+      const nextWallId = patch.wallId ?? win.wallId;
+      const wall = prev.data.walls.find((w) => w.id === nextWallId);
+      if (!wall) return prev;
+      const width = patch.width ?? win.width;
+      const height = patch.height ?? win.height;
+      const sillHeight = patch.sillHeight ?? win.sillHeight;
+      let position = patch.position ?? win.position;
+      position = clampPositionForOpeningOnWall(wall, position, width);
+      return {
+        data: {
+          ...prev.data,
+          windows: prev.data.windows.map((w) =>
+            w.id === id
+              ? { ...w, wallId: nextWallId, position, width, height, sillHeight }
+              : w,
+          ),
+        },
+        dirty: true,
+      };
+    });
+  },
+
   getPlanData() {
     const d = get().data;
-    // Re-assert schemaVersion: defensive in case of future dev-branch
-    // drift. Server will reject mismatch anyway, but failing fast here
-    // is nicer for debugging.
     if (d.meta.schemaVersion !== FLOOR_PLAN_SCHEMA_VERSION) {
       throw new Error(
         `Editor domain state has wrong schemaVersion=${d.meta.schemaVersion}, expected ${FLOOR_PLAN_SCHEMA_VERSION}`,

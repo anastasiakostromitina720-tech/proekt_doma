@@ -6,6 +6,7 @@ import type { ChangeEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
 
 import type { FloorPlanConflictInfo, FloorPlanSaveStatus } from '@/features/floor-plan';
 
@@ -27,7 +28,7 @@ interface Props {
  * Right-hand panel. Three sections, always visible (no tabs):
  *   1. Save status + action buttons
  *   2. Plan metadata (schemaVersion, version, counts)
- *   3. Properties of the selected element (wall / room)
+ *   3. Properties of the selected element (wall / room / door / window)
  *
  * The selection section reads the selected wall/room straight from
  * `data` by id — it does not cache the object in local state. That way
@@ -196,6 +197,8 @@ function SelectionSection({
 }) {
   const updateWall = useEditorStore((s) => s.updateWall);
   const updateRoom = useEditorStore((s) => s.updateRoom);
+  const updateDoor = useEditorStore((s) => s.updateDoor);
+  const updateWindow = useEditorStore((s) => s.updateWindow);
   const deleteSelected = useEditorStore((s) => s.deleteSelected);
 
   if (!selection) {
@@ -205,7 +208,7 @@ function SelectionSection({
           Выделение
         </h2>
         <p className="text-xs text-muted-foreground">
-          Ничего не выделено. Переключитесь на «Выбрать» и кликните по стене или комнате.
+          Ничего не выделено. Режим «Выбрать»: клик по стене, комнате, двери или окну.
         </p>
       </section>
     );
@@ -285,6 +288,251 @@ function SelectionSection({
           disabled={isMutatingBlocked}
         >
           Удалить стену
+        </Button>
+      </section>
+    );
+  }
+
+  if (selection.type === 'door') {
+    const door = data.doors.find((d) => d.id === selection.id);
+    if (!door) return null;
+
+    const onWidth = (e: ChangeEvent<HTMLInputElement>): void => {
+      const v = Number(e.target.value);
+      if (!Number.isFinite(v) || v <= 0) return;
+      updateDoor(door.id, { width: snapValue(v, 0.01) });
+    };
+    const onHeight = (e: ChangeEvent<HTMLInputElement>): void => {
+      const v = Number(e.target.value);
+      if (!Number.isFinite(v) || v <= 0) return;
+      updateDoor(door.id, { height: snapValue(v, 0.01) });
+    };
+    const onPosition = (e: ChangeEvent<HTMLInputElement>): void => {
+      const v = Number(e.target.value);
+      if (!Number.isFinite(v)) return;
+      const t = Math.min(1, Math.max(0, v));
+      updateDoor(door.id, { position: t });
+    };
+    const onWallId = (e: ChangeEvent<HTMLSelectElement>): void => {
+      updateDoor(door.id, { wallId: e.target.value });
+    };
+
+    return (
+      <section className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Дверь
+          </h2>
+          <code className="font-mono text-[10px] text-muted-foreground">
+            {door.id.slice(0, 8)}
+          </code>
+        </div>
+        <div>
+          <Label htmlFor="door-wall" className="text-xs">
+            Стена (wallId)
+          </Label>
+          <select
+            id="door-wall"
+            className={cn(
+              'mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm',
+              'ring-offset-background focus-visible:outline-none focus-visible:ring-2',
+              'focus-visible:ring-ring focus-visible:ring-offset-2',
+              'disabled:cursor-not-allowed disabled:opacity-50',
+            )}
+            value={door.wallId}
+            disabled={isMutatingBlocked || data.walls.length === 0}
+            onChange={onWallId}
+          >
+            {data.walls.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.id.slice(0, 8)}… ({w.start.x.toFixed(1)},{w.start.y.toFixed(1)}) → (
+                {w.end.x.toFixed(1)},{w.end.y.toFixed(1)})
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <Label htmlFor="door-position" className="text-xs">
+            Позиция вдоль стены (0…1)
+          </Label>
+          <Input
+            id="door-position"
+            type="number"
+            step="0.01"
+            min={0}
+            max={1}
+            value={door.position}
+            disabled={isMutatingBlocked}
+            onChange={onPosition}
+          />
+        </div>
+        <div>
+          <Label htmlFor="door-width" className="text-xs">
+            Ширина проёма, м
+          </Label>
+          <Input
+            id="door-width"
+            type="number"
+            step="0.01"
+            min="0.01"
+            value={door.width}
+            disabled={isMutatingBlocked}
+            onChange={onWidth}
+          />
+        </div>
+        <div>
+          <Label htmlFor="door-height" className="text-xs">
+            Высота, м
+          </Label>
+          <Input
+            id="door-height"
+            type="number"
+            step="0.01"
+            min="0.01"
+            value={door.height}
+            disabled={isMutatingBlocked}
+            onChange={onHeight}
+          />
+        </div>
+        <Button
+          size="sm"
+          variant="destructive"
+          onClick={deleteSelected}
+          disabled={isMutatingBlocked}
+        >
+          Удалить дверь
+        </Button>
+      </section>
+    );
+  }
+
+  if (selection.type === 'window') {
+    const win = data.windows.find((w) => w.id === selection.id);
+    if (!win) return null;
+
+    const onWidth = (e: ChangeEvent<HTMLInputElement>): void => {
+      const v = Number(e.target.value);
+      if (!Number.isFinite(v) || v <= 0) return;
+      updateWindow(win.id, { width: snapValue(v, 0.01) });
+    };
+    const onHeight = (e: ChangeEvent<HTMLInputElement>): void => {
+      const v = Number(e.target.value);
+      if (!Number.isFinite(v) || v <= 0) return;
+      updateWindow(win.id, { height: snapValue(v, 0.01) });
+    };
+    const onSill = (e: ChangeEvent<HTMLInputElement>): void => {
+      const v = Number(e.target.value);
+      if (!Number.isFinite(v) || v < 0) return;
+      updateWindow(win.id, { sillHeight: snapValue(v, 0.01) });
+    };
+    const onPosition = (e: ChangeEvent<HTMLInputElement>): void => {
+      const v = Number(e.target.value);
+      if (!Number.isFinite(v)) return;
+      const t = Math.min(1, Math.max(0, v));
+      updateWindow(win.id, { position: t });
+    };
+    const onWallId = (e: ChangeEvent<HTMLSelectElement>): void => {
+      updateWindow(win.id, { wallId: e.target.value });
+    };
+
+    return (
+      <section className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Окно
+          </h2>
+          <code className="font-mono text-[10px] text-muted-foreground">
+            {win.id.slice(0, 8)}
+          </code>
+        </div>
+        <div>
+          <Label htmlFor="window-wall" className="text-xs">
+            Стена (wallId)
+          </Label>
+          <select
+            id="window-wall"
+            className={cn(
+              'mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm',
+              'ring-offset-background focus-visible:outline-none focus-visible:ring-2',
+              'focus-visible:ring-ring focus-visible:ring-offset-2',
+              'disabled:cursor-not-allowed disabled:opacity-50',
+            )}
+            value={win.wallId}
+            disabled={isMutatingBlocked || data.walls.length === 0}
+            onChange={onWallId}
+          >
+            {data.walls.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.id.slice(0, 8)}… ({w.start.x.toFixed(1)},{w.start.y.toFixed(1)}) → (
+                {w.end.x.toFixed(1)},{w.end.y.toFixed(1)})
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <Label htmlFor="window-position" className="text-xs">
+            Позиция вдоль стены (0…1)
+          </Label>
+          <Input
+            id="window-position"
+            type="number"
+            step="0.01"
+            min={0}
+            max={1}
+            value={win.position}
+            disabled={isMutatingBlocked}
+            onChange={onPosition}
+          />
+        </div>
+        <div>
+          <Label htmlFor="window-width" className="text-xs">
+            Ширина проёма, м
+          </Label>
+          <Input
+            id="window-width"
+            type="number"
+            step="0.01"
+            min="0.01"
+            value={win.width}
+            disabled={isMutatingBlocked}
+            onChange={onWidth}
+          />
+        </div>
+        <div>
+          <Label htmlFor="window-height" className="text-xs">
+            Высота проёма, м
+          </Label>
+          <Input
+            id="window-height"
+            type="number"
+            step="0.01"
+            min="0.01"
+            value={win.height}
+            disabled={isMutatingBlocked}
+            onChange={onHeight}
+          />
+        </div>
+        <div>
+          <Label htmlFor="window-sill" className="text-xs">
+            Высота подоконника, м
+          </Label>
+          <Input
+            id="window-sill"
+            type="number"
+            step="0.01"
+            min={0}
+            value={win.sillHeight}
+            disabled={isMutatingBlocked}
+            onChange={onSill}
+          />
+        </div>
+        <Button
+          size="sm"
+          variant="destructive"
+          onClick={deleteSelected}
+          disabled={isMutatingBlocked}
+        >
+          Удалить окно
         </Button>
       </section>
     );

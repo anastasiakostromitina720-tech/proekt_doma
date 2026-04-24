@@ -1,4 +1,11 @@
-import type { FloorPlanData, Point2D, Room, Wall } from '@app/contracts';
+import type {
+  Door,
+  FloorPlanData,
+  Point2D,
+  Room,
+  Wall,
+  Window as PlanWindow,
+} from '@app/contracts';
 
 /**
  * Plan space: X horizontal, Y "depth" on the 2D drawing (floor plan).
@@ -94,4 +101,101 @@ export function roomFloorShapeToPositions(shape: RoomFloorShape): Float32Array {
 /** True when there is nothing meaningful to preview in 3D (MVP heuristic). */
 export function isPlanGeometryEmpty(data: FloorPlanData): boolean {
   return data.walls.length === 0 && data.rooms.length === 0;
+}
+
+/**
+ * Simple 3D placeholder for a door/window: axis-aligned box on the wall face,
+ * no boolean cuts (not CSG).
+ */
+export interface OpeningMarkerProps {
+  openingId: string;
+  kind: 'door' | 'window';
+  position: [number, number, number];
+  rotation: [number, number, number];
+  boxArgs: [number, number, number];
+  color: string;
+}
+
+function openingToMarkerProps(
+  wall: Wall,
+  opening: { position: number; width: number; height: number; sillHeight?: number },
+  kind: 'door' | 'window',
+  openingId: string,
+): OpeningMarkerProps | null {
+  const dx = wall.end.x - wall.start.x;
+  const dz = wall.end.y - wall.start.y;
+  const len = Math.hypot(dx, dz);
+  if (len < 1e-6) return null;
+
+  const t = opening.position;
+  const px = wall.start.x + dx * t;
+  const pz = wall.start.y + dz * t;
+
+  const nx = -dz / len;
+  const nz = dx / len;
+
+  const bump = wall.thickness * 0.5 + 0.1;
+  const theta = Math.atan2(dz, dx);
+
+  const yWorld =
+    kind === 'door'
+      ? opening.height * 0.5
+      : (opening.sillHeight ?? 0) + opening.height * 0.5;
+
+  return {
+    openingId,
+    kind,
+    position: [px + nx * bump, yWorld, pz + nz * bump],
+    rotation: [0, theta, 0],
+    boxArgs: [
+      Math.max(opening.width, 0.05),
+      Math.max(opening.height, 0.05),
+      0.14,
+    ],
+    color: kind === 'door' ? '#ea580c' : '#0284c7',
+  };
+}
+
+export function doorToMarkerProps(wall: Wall, door: Door): OpeningMarkerProps | null {
+  return openingToMarkerProps(
+    wall,
+    { position: door.position, width: door.width, height: door.height },
+    'door',
+    door.id,
+  );
+}
+
+export function windowToMarkerProps(
+  wall: Wall,
+  win: PlanWindow,
+): OpeningMarkerProps | null {
+  return openingToMarkerProps(
+    wall,
+    {
+      position: win.position,
+      width: win.width,
+      height: win.height,
+      sillHeight: win.sillHeight,
+    },
+    'window',
+    win.id,
+  );
+}
+
+export function collectOpeningMarkers(data: FloorPlanData): OpeningMarkerProps[] {
+  const wallMap = new Map(data.walls.map((w) => [w.id, w]));
+  const out: OpeningMarkerProps[] = [];
+  for (const d of data.doors) {
+    const w = wallMap.get(d.wallId);
+    if (!w) continue;
+    const m = doorToMarkerProps(w, d);
+    if (m) out.push(m);
+  }
+  for (const win of data.windows) {
+    const w = wallMap.get(win.wallId);
+    if (!w) continue;
+    const m = windowToMarkerProps(w, win);
+    if (m) out.push(m);
+  }
+  return out;
 }
