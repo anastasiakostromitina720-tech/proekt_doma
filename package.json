@@ -1,0 +1,38 @@
+{
+  "name": "proekt-doma",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Web app for home design, planning and AI redesign",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20.11.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "preinstall": "npx -y only-allow pnpm",
+    "dev": "pnpm build:contracts && concurrently -n contracts,api,web -c green,blue,magenta \"pnpm --filter @app/contracts dev\" \"pnpm --filter @app/api dev\" \"pnpm --filter @app/web dev\"",
+    "dev:api": "pnpm build:contracts && concurrently -n contracts,api -c green,blue \"pnpm --filter @app/contracts dev\" \"pnpm --filter @app/api dev\"",
+    "dev:web": "pnpm build:contracts && concurrently -n contracts,web -c green,magenta \"pnpm --filter @app/contracts dev\" \"pnpm --filter @app/web dev\"",
+    "build": "pnpm build:contracts && pnpm --filter @app/api build && pnpm --filter @app/web build",
+    "build:contracts": "pnpm --filter @app/contracts build",
+    "clean": "pnpm -r run clean",
+    "lint": "pnpm -r run lint",
+    "typecheck": "pnpm build:contracts && pnpm -r run typecheck",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md}\"",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:reset": "docker compose down -v",
+    "docker:logs": "docker compose logs -f",
+    "db:generate": "pnpm --filter @app/api prisma:generate",
+    "db:migrate": "pnpm --filter @app/api prisma:migrate",
+    "db:deploy": "pnpm --filter @app/api prisma:deploy",
+    "db:studio": "pnpm --filter @app/api prisma:studio",
+    "db:validate": "pnpm --filter @app/api prisma:validate"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.2"
+  }
+}
