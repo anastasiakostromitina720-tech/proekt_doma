@@ -1,4 +1,5 @@
 import {
+  CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
@@ -98,6 +99,21 @@ export class StorageService {
     return getSignedUrl(this.signClient, command, { expiresIn: PRESIGN_GET_EXPIRES_SEC });
   }
 
+  /**
+   * Server-side copy within the same bucket (no bytes through HTTP handlers).
+   */
+  async copyObject(sourceKey: string, destinationKey: string): Promise<void> {
+    this.assertConfigured();
+    const CopySource = `${this.bucket}/${sourceKey}`;
+    await this.opsClient.send(
+      new CopyObjectCommand({
+        Bucket: this.bucket,
+        Key: destinationKey,
+        CopySource,
+      }),
+    );
+  }
+
   async headObject(key: string): Promise<HeadObjectResult | null> {
     this.assertConfigured();
     try {
@@ -135,5 +151,18 @@ export class StorageService {
       if (status === 404) return;
       throw err;
     }
+  }
+
+  /** Upload bytes from the API worker (e.g. Replicate result) — not exposed to browsers. */
+  async putObject(key: string, body: Buffer, contentType: string): Promise<void> {
+    this.assertConfigured();
+    await this.opsClient.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: body,
+        ContentType: contentType,
+      }),
+    );
   }
 }

@@ -10,5 +10,6 @@ import { MediaService } from './media.service';
   imports: [ProjectsModule],
   controllers: [MediaController],
   providers: [MediaService, MediaRepository],
+  exports: [MediaService, MediaRepository],
 })
 export class MediaModule {}

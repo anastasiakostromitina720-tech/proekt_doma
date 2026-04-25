@@ -4,3 +4,4 @@ export * from './auth';
 export * from './project';
 export * from './floor-plan';
 export * from './media';
+export * from './redesign';

@@ -58,14 +58,18 @@ export class MediaService {
       sizeBytes: input.sizeBytes,
     });
 
-    const { url, headers } = await this.storage.presignPut(storageKey, input.mimeType);
-
-    return {
-      mediaId,
-      uploadUrl: url,
-      uploadHeaders: headers,
-      expiresInSeconds: 15 * 60,
-    };
+    try {
+      const { url, headers } = await this.storage.presignPut(storageKey, input.mimeType);
+      return {
+        mediaId,
+        uploadUrl: url,
+        uploadHeaders: headers,
+        expiresInSeconds: 15 * 60,
+      };
+    } catch (err) {
+      await this.media.deleteById(mediaId);
+      throw err;
+    }
   }
 
   async confirmUpload(userId: string, projectId: string, mediaId: string): Promise<MediaAssetDto> {

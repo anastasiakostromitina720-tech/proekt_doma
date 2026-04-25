@@ -150,18 +150,32 @@ export function ProjectCard({ project, onRename, onDelete }: ProjectCardProps) {
         {error ? <p className="text-xs text-destructive">{error}</p> : null}
       </CardContent>
 
-      <CardFooter className="justify-end gap-2">
+      <CardFooter className="flex w-full flex-col gap-3 border-t pt-4">
         {!editing ? (
           <>
-            <Button variant="ghost" size="sm" asChild disabled={pending}>
-              <Link href={`/projects/${project.id}/floor-plan`}>Floor plan</Link>
-            </Button>
-            <Button variant="outline" size="sm" onClick={startEdit} disabled={pending}>
-              Переименовать
-            </Button>
-            <Button variant="destructive" size="sm" onClick={handleDelete} disabled={pending}>
-              Удалить
-            </Button>
+            <p className="w-full text-xs font-medium text-muted-foreground">Действия</p>
+            <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
+              <Button variant="default" size="sm" asChild className="w-full justify-center" disabled={pending}>
+                <Link href={`/projects/${project.id}/floor-plan`}>2D редактор</Link>
+              </Button>
+              <Button variant="secondary" size="sm" asChild className="w-full justify-center" disabled={pending}>
+                <Link href={`/projects/${project.id}/viewer`}>3D просмотр</Link>
+              </Button>
+              <Button variant="outline" size="sm" asChild className="w-full justify-center" disabled={pending}>
+                <Link href={`/projects/${project.id}/media`}>Медиа</Link>
+              </Button>
+              <Button variant="outline" size="sm" asChild className="w-full justify-center" disabled={pending}>
+                <Link href={`/projects/${project.id}/redesign`}>AI редизайн</Link>
+              </Button>
+            </div>
+            <div className="flex w-full flex-wrap justify-end gap-2 border-t border-border/60 pt-3">
+              <Button variant="outline" size="sm" onClick={startEdit} disabled={pending}>
+                Переименовать
+              </Button>
+              <Button variant="destructive" size="sm" onClick={handleDelete} disabled={pending}>
+                Удалить
+              </Button>
+            </div>
           </>
         ) : null}
       </CardFooter>

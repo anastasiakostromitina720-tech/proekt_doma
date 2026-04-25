@@ -47,6 +47,24 @@ export const envSchema = z
     AUTH_COOKIE_SECURE: booleanFromString.default('false'),
     AUTH_COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'),
     AUTH_BCRYPT_COST: z.coerce.number().int().min(8).max(14).default(12),
+
+    /** redesign pipeline: `mock` (S3 copy) or `replicate` (Replicate Predictions API). */
+    REDESIGN_PROVIDER: z.enum(['mock', 'replicate']).default('mock'),
+    /** Stale `PROCESSING` jobs older than this are marked FAILED by the sweeper. */
+    REDESIGN_PROCESSING_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(600),
+    /** Max times a job may enter PROCESSING (guards transition PENDING → PROCESSING). */
+    REDESIGN_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(50).default(3),
+    /** Max bytes when downloading Replicate result image into memory (streaming cap). */
+    REDESIGN_RESULT_MAX_BYTES: z.coerce.number().int().positive().max(200 * 1024 * 1024).default(10 * 1024 * 1024),
+
+    REPLICATE_API_TOKEN: z.string().optional(),
+    REPLICATE_MODEL_VERSION: z.string().optional(),
+    REPLICATE_API_BASE_URL: z.string().url().default('https://api.replicate.com/v1'),
+    /**
+     * Reserved for a future webhook-based completion path. MVP uses server-side polling only;
+     * this URL is not sent to Replicate until a verified webhook handler is implemented.
+     */
+    REPLICATE_WEBHOOK_URL: z.string().url().optional(),
   })
   .superRefine((env, ctx) => {
     if (env.AUTH_JWT_ACCESS_SECRET === env.AUTH_JWT_REFRESH_SECRET) {
@@ -69,6 +87,22 @@ export const envSchema = z
         path: ['AUTH_COOKIE_SECURE'],
         message: 'SameSite=None requires Secure cookie',
       });
+    }
+    if (env.REDESIGN_PROVIDER === 'replicate') {
+      if (!env.REPLICATE_API_TOKEN?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['REPLICATE_API_TOKEN'],
+          message: 'REPLICATE_API_TOKEN is required when REDESIGN_PROVIDER=replicate',
+        });
+      }
+      if (!env.REPLICATE_MODEL_VERSION?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['REPLICATE_MODEL_VERSION'],
+          message: 'REPLICATE_MODEL_VERSION is required when REDESIGN_PROVIDER=replicate',
+        });
+      }
     }
   });
 

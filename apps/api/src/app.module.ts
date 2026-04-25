@@ -11,6 +11,7 @@ import { FloorPlansModule } from './modules/floor-plans/floor-plans.module';
 import { HealthModule } from './modules/health/health.module';
 import { MediaModule } from './modules/media/media.module';
 import { ProjectsModule } from './modules/projects/projects.module';
+import { RedesignModule } from './modules/redesign/redesign.module';
 import { UsersModule } from './modules/users/users.module';
 
 @Module({
@@ -50,6 +51,7 @@ import { UsersModule } from './modules/users/users.module';
     ProjectsModule,
     FloorPlansModule,
     MediaModule,
+    RedesignModule,
     HealthModule,
   ],
 })
