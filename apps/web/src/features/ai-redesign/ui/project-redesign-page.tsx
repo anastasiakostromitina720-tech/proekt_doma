@@ -10,7 +10,7 @@ import {
   redesignStyleSchema,
 } from '@app/contracts';
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -62,6 +62,7 @@ export function ProjectRedesignPage({ projectId }: Props) {
 
   const [pollJobId, setPollJobId] = useState<string | null>(null);
   const [polledJob, setPolledJob] = useState<RedesignJobDto | null>(null);
+  const pollTickBusy = useRef(false);
 
   const refreshMedia = useCallback(async (): Promise<void> => {
     setMediaLoading(true);
@@ -107,6 +108,10 @@ export function ProjectRedesignPage({ projectId }: Props) {
     if (!pollJobId) return;
 
     const tick = async (): Promise<void> => {
+      if (pollTickBusy.current) {
+        return;
+      }
+      pollTickBusy.current = true;
       try {
         const j = await projectRedesignApi.get(projectId, pollJobId);
         setPolledJob(j);
@@ -116,12 +121,17 @@ export function ProjectRedesignPage({ projectId }: Props) {
         }
       } catch {
         /* keep polling until terminal or manual refresh */
+      } finally {
+        pollTickBusy.current = false;
       }
     };
 
     void tick();
     const id = window.setInterval(() => void tick(), POLL_MS);
-    return () => window.clearInterval(id);
+    return () => {
+      window.clearInterval(id);
+      pollTickBusy.current = false;
+    };
   }, [pollJobId, projectId, refreshJobs]);
 
   const onCreate = async (): Promise<void> => {

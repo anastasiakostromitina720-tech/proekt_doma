@@ -6,6 +6,7 @@ import { publicEnv } from '@/lib/env';
  *   - automatic Bearer <accessToken> attachment from the session store
  *   - single-flight refresh on 401, then one retry of the original request
  *   - hard logout (clear session + redirect) if refresh also fails
+ *   - in-flight de-dupe for identical GETs (Link prefetch + useEffect, double mount, etc.)
  *
  * The refresh mechanism is wired lazily via `configureApiClient()` to avoid
  * an import cycle with the session store (which itself uses this client).
@@ -136,7 +137,20 @@ async function parseBody<T>(response: Response): Promise<T> {
   return (isJson ? await response.json() : await response.text()) as T;
 }
 
-export async function apiFetch<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+/** Coalesce concurrent identical GETs to one network round-trip + one JSON parse. */
+const inflightGet = new Map<string, Promise<unknown>>();
+
+function getInFlightGetKey(path: string, options: ApiRequestOptions): string | null {
+  if ((options.method ?? 'GET').toUpperCase() !== 'GET') {
+    return null;
+  }
+  if (options.body !== undefined) {
+    return null;
+  }
+  return `GET|${options.skipAuth ? 1 : 0}|${buildUrl(path, options.query)}`;
+}
+
+async function runApiFetch<T>(path: string, options: ApiRequestOptions): Promise<T> {
   const first = await rawFetch(path, options);
 
   if (first.response.ok) {
@@ -167,6 +181,25 @@ export async function apiFetch<T>(path: string, options: ApiRequestOptions = {})
     hooks.onAuthFailure();
   }
   throw await toApiError(second.response, second.path);
+}
+
+export async function apiFetch<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+  const key = getInFlightGetKey(path, options);
+  if (key) {
+    const hit = inflightGet.get(key) as Promise<T> | undefined;
+    if (hit) {
+      return hit;
+    }
+  }
+
+  const run = runApiFetch<T>(path, options);
+  if (key) {
+    inflightGet.set(key, run);
+    void run.finally(() => {
+      inflightGet.delete(key);
+    });
+  }
+  return run;
 }
 
 export const api = {

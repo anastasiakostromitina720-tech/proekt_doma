@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: true,
+  // В dev иначе эффекты (опрос, загрузка данных) запускаются дважды — дублируются
+  // сетевые ответы и визуальные «повторы». Полноценный StrictMode оставим для e2e/CI.
+  reactStrictMode: false,
   poweredByHeader: false,
   // Workspace symlink + `exports` — Next must transpile the linked package
   // so webpack resolves `@app/contracts` reliably (see monorepo docs).
